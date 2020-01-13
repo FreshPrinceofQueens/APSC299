@@ -11,8 +11,8 @@
 int val3 = LOW; //state of wheel initially low
 int preval3 = HIGH, preval4;
 int count = 0;
-int wSpd;
-int wRot;
+int wSpd; //variable to hold speded value for wheels
+int wRot; //variable to hold rotation value for wheels
 
 
 void setup() {
@@ -24,7 +24,7 @@ void setup() {
   pinMode(E2, OUTPUT); // speed pin for motor 2
   pinMode(M1, OUTPUT); // direction pin for motor 1
   pinMode(M2, OUTPUT); //direction pin for motor 2
-  pinMode(P3, INPUT);
+  pinMode(P3, INPUT); //wheel encoder for motor 2
   pinMode(P4, INPUT);
   attachInterrupt(0, forInter, CHANGE);  //when any change occurs on interupt 0 (aka pin 2), forInter() is called
   interrupts(); //this function enables interupts
@@ -65,7 +65,7 @@ digitalWrite(M1, rotation);
 analogWrite(E1, spd);
 }
 
-void driveMotor2(int spd, int rotation) //allows control of speed and rotation direction for motor one
+void driveMotor2(int spd, int rotation) //allows control of speed and rotation direction for motor two
 {
   digitalWrite(M2, rotation);
 analogWrite(E2, spd);
