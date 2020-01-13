@@ -2,13 +2,13 @@
 #define E1 6
 #define E2 5
 #define M2 4
-#define BUTTON 2
+#define BUTTON 2 //encoder attached to "interupt #0" or pin 2. Pin 2 and 3 are reserved for interupt 0 and 1.
 #define P3 10
 #define P4 11
 #define pi 3.14
 
 
-int val3 = LOW;
+int val3 = LOW; //state of wheel initially low
 int preval3 = HIGH, preval4;
 int count = 0;
 int wSpd;
@@ -17,23 +17,22 @@ int wRot;
 
 void setup() {
   // put your setup code here, to run once:
-  Serial.begin(9600);
-  // put your setup code here, to run once:
+  Serial.begin(9600); //initializer
   
-  pinMode(BUTTON, INPUT); //push button set up
+  pinMode(BUTTON, INPUT); //encoder input pin
   pinMode(E1, OUTPUT); //speed pin for motor 1 
   pinMode(E2, OUTPUT); // speed pin for motor 2
   pinMode(M1, OUTPUT); // direction pin for motor 1
   pinMode(M2, OUTPUT); //direction pin for motor 2
   pinMode(P3, INPUT);
   pinMode(P4, INPUT);
-  attachInterrupt(0, forInter, CHANGE);
-  interrupts();
+  attachInterrupt(0, forInter, CHANGE);  //when any change occurs on interupt 0 (aka pin 2), forInter() is called
+  interrupts(); //this function enables interupts
 }
 
 void forInter()
 {
-  count++;
+  count++; //increment the count which represents the number of state transitions from high to low
   //MATH FOR SPEED
   int veloc = ((6*pi)/255) * wSpd;
   //String strvel = (String) "Speed is "+ veloc + " rad/s";
@@ -54,16 +53,19 @@ int countEncoder2()
 
   
 }
+
 void driveMotors(){
   driveMotor1(wSpd,wRot);
   driveMotor2(wSpd, wRot);
 }
-void driveMotor1(int spd, int rotation)
+
+void driveMotor1(int spd, int rotation) //allows control of speed and rotation direction for motor one
 {
 digitalWrite(M1, rotation);
 analogWrite(E1, spd);
 }
-void driveMotor2(int spd, int rotation)
+
+void driveMotor2(int spd, int rotation) //allows control of speed and rotation direction for motor one
 {
   digitalWrite(M2, rotation);
 analogWrite(E2, spd);
@@ -76,7 +78,7 @@ void loop()
 {
   // put your main code here, to run repeatedly:
 
-while(count <=60) //1 rotation approx 20, therefore 3 is 60
+while(count <=60) //1 rotation = approx 20 transitions, therefore 3 is 60
 //3 rotations forward
 {
 wSpd = 128;
