@@ -29,7 +29,7 @@
 #define EAST 90
 
 
-float wallLength =  1.7
+float wallLength =  1.7;
 
 float wheelSpeed = 0.15;
 
@@ -59,6 +59,7 @@ float curTime = 0.0;
 float preVeloc = 0.0; //variables for tracking movement and distance of robot
 float preTime = 0.0;
 int stopSignal = 0;
+float rec_cordX = -1, rec_cordY = -1;
 int colorSignal = 0;
 int orientation = NORTH;
 int pre_orientation = -1;
@@ -238,7 +239,7 @@ int forwardsBy(float distance) { //possibly recall
 //-------------------------------------------------------------------------------------------
 boolean checkColorSignal(){
   boolean result = false;
-  if(colorSignal >= 1000)return = true;//colorsignal greater than 1000 when on base
+  if(colorSignal >= 1000)result = true;//colorsignal greater than 1000 when on base
   else result = false;
 
   if(invertCSG == 1){
@@ -273,20 +274,105 @@ int go(float distance, int dir) { //go function for driving the wheels
   //different directions require the wheels to be turned first before 
   //moving forward.
 
+   int tempangle = 0;
+  float angle = 0.0;
+  int dire = -1;
+//Serial.println("support for negative distances checked");
    switch (dir){
     case LEFT:
-      turnWheels(90, LEFT);
+     Serial.println("going left");
+      angle = 90;
+      dire = LEFT;
+
+      tempangle = (int)angle;
+      angle = angle / 180 * 1400;
+        //conversion from given angle to specific millisecond delay for wheels
+      pre_orientation = orientation;
+          driveMotor1(0, LOW);
+          driveMotor2(0, LOW);
+          delay(200);
+        if (dire == RIGHT) {
+          driveMotor1(128, LOW );
+          driveMotor2(128, HIGH);
+          delay(angle); //driving to right angle
+          orientation = orientation + tempangle;
+        }
+        if (dire == LEFT) {
+        driveMotor1(128, HIGH );
+        driveMotor2(128, LOW);
+        delay(angle);
+        orientation = orientation + (360 -tempangle);
+        }
+        if(orientation == 360) orientation = 0;
+          driveMotor1(0, LOW);
+          driveMotor2(0, LOW);
+          delay(200);
       break;
 
     case RIGHT:
-      turnWheels(90, RIGHT);
+  Serial.println("going right");
+      angle = 90;
+      dire = RIGHT;
+      tempangle = (int)angle;
+      angle = angle / 180 * 1400;
+        //conversion from given angle to specific millisecond delay for wheels
+      pre_orientation = orientation;
+          driveMotor1(0, LOW);
+          driveMotor2(0, LOW);
+          delay(200);
+        if (dire == RIGHT) {
+          driveMotor1(128, LOW );
+          driveMotor2(128, HIGH);
+          delay(angle); //driving to right angle
+          orientation = orientation + tempangle;
+        }
+        if (dire == LEFT) {
+        driveMotor1(128, HIGH );
+        driveMotor2(128, LOW);
+        delay(angle);
+        orientation = orientation + (360 -tempangle);
+        }
+        if(orientation == 360) orientation = 0;
+          driveMotor1(0, LOW);
+          driveMotor2(0, LOW);
+          delay(200);
+      
       break;
 
     case BACKWS:
-      turnWheels(180, RIGHT);
+      //turnWheels(180, RIGHT);
+      Serial.println("going back");
+      angle = 180;
+      dire = RIGHT;
+      tempangle = (int)angle;
+      angle = angle / 180 * 1400;
+        //conversion from given angle to specific millisecond delay for wheels
+      pre_orientation = orientation;
+          driveMotor1(0, LOW);
+          driveMotor2(0, LOW);
+          delay(200);
+        if (dire == RIGHT) {
+          driveMotor1(128, LOW );
+          driveMotor2(128, HIGH);
+          delay(angle); //driving to right angle
+          orientation = orientation + tempangle;
+        }
+        if (dire == LEFT) {
+        driveMotor1(128, HIGH );
+        driveMotor2(128, LOW);
+        delay(angle);
+        orientation = orientation + (360 -tempangle);
+        }
+        if(orientation == 360) orientation = 0;
+          driveMotor1(0, LOW);
+          driveMotor2(0, LOW);
+          delay(200);
+      
       break;
 
     case FORWS:
+    Serial.println("going forw");
+        pre_orientation = orientation;
       break;
    }
   
@@ -302,7 +388,7 @@ int go(float distance, int dir) { //go function for driving the wheels
     while (true) { //for driving
       time2 = millis();
       diff = time2 - time1;
-      curdist = diff * wheelSpeed;
+      curdist = diff * wheelSpeed / 1000;
 
       //essential idea is that the time2 is updated for each while loop run
       //the diff is then checked with timing, if it equal to or greater than the timing
@@ -320,7 +406,9 @@ int go(float distance, int dir) { //go function for driving the wheels
       exitstatus = 1;
       break;
       }
+   Serial.print(toReact());
       if (toReact() == 1) {
+        
         //bumpers are hit
         exitstatus = 2;
         break;
@@ -339,7 +427,10 @@ int go(float distance, int dir) { //go function for driving the wheels
       }
 
     }
-    stopWheels();
+
+  driveMotor1(0, LOW);
+  driveMotor2(0, LOW);
+  delay(200);
 
   //designed to properly update coordinates properly based on the orientation of the robot
   if(pre_orientation == -1) pre_orientation = NORTH;
@@ -395,14 +486,119 @@ int go(float distance, int dir) { //go function for driving the wheels
       break;
     }
 
+    printCoordinates();
+
     if (exitstatus == 2) {
       //barrier error, recall fucntion
-      Serial.println("Exit Status 2");
       float totravel = distance - curdist;
-      go(totravel, FORWS);
+      exit;
+      //go(totravel, FORWS);
     }
+
+    
     return exitstatus;
 }
+//-------------------------------------------------------------------------------------------
+int goCardinal(float distance, int cardinal){
+  //set the orientation of the robot
+  setOrientation(cardinal);
+
+  
+  //simple move forward
+    int exitstatus = -1;
+    //exit status
+    float addtoX = 0.0, addtoY = 0.0;
+    float time1 = 0.0, time2 = 0.0, diff = 0.0, curdist = 0.0; //initial variables
+    float timing = (distance / wheelSpeed) * 1000; //converting given distance to amount of time
+    time1 = millis();
+    forwards();
+    while (true) { 
+      time2 = millis();
+      diff = time2 - time1;
+      curdist = diff * wheelSpeed / 1000;
+      if(stopSignal == 1){
+        exitstatus = 5;
+        break;
+      }
+      if (analogRead(IRSENSOR) >= 400) {
+      exitstatus = 1;
+      break;
+      }
+      if (toReact() == 1) {
+        exitstatus = 2;
+        break;
+      }
+      colorSignal = analogRead(SENSECOLOUR); //read from ir sensor
+      if(checkColorSignal()){
+        exitstatus = 4;
+        break;
+      }
+      if (diff >= timing) {
+        exitstatus = 0;
+        break;
+      }
+
+    }
+  driveMotor1(0, LOW);
+  driveMotor2(0, LOW);
+  delay(200);
+
+ 
+  //update coordinates based on cardinal
+
+  switch(cardinal){
+    case NORTH:
+    addtoY = curdist;
+    break;
+    case SOUTH:
+    addtoY = curdist * -1;
+    break;
+    case EAST:
+    addtoX = curdist;
+    break;
+    case WEST:
+    addtoX = curdist * -1;
+    break;
+  }
+
+  cordX = cordX + addtoX;
+  cordY = cordY + addtoY;
+
+
+    //standard exit status info and coordinate info
+     switch(exitstatus){
+      //exitstatus info
+      case 0:
+      Serial.println("Exit Status 0: Clear Run.");
+      break;
+      case 1:
+      Serial.println("Exit Status 1: IR Error.");
+      break;
+      case 2:
+      Serial.println("Exit Status 2: Bumper Barrier Error.");
+      break;
+      case 4:
+      Serial.println("Exit Status 4: Color signal asserted.");
+      break;
+      case 5:
+      Serial.println("Exit Status 5: Stop signal asserted.");
+      break;
+    }
+
+    printCoordinates();
+
+    if (exitstatus == 2) {
+      //barrier error, recall fucntion
+      float totravel = distance - curdist;
+      exit;
+      //go(totravel, FORWS);
+    }
+
+    
+    return exitstatus;
+  
+}
+
 //-------------------------------------------------------------------------------------------
 void gripAt(int angle) //gripping robot
 
@@ -684,28 +880,36 @@ void printInfo() {//possibly recall
 void turnWheels(float angle, int dir) {
   //turnwheels with the specified angle in the specified direction
   //either RIGHT or LEFT
-
+  String direct = " ";
+//Serial.println("in turn wheels");
   if(angle<0){
     angle = angle * -1;
     if(dir == RIGHT) dir = LEFT;
     if(dir == LEFT) dir = RIGHT;
   }
+  //Serial.println("passed negative support");
+
+    if(dir == RIGHT) direct = " degrees to the RIGHT";
+  else direct == " degrees to the LEFT";
   
+  Serial.print("Turning wheels ");
+  Serial.print(dir);
+  Serial.print(" + ");
+  Serial.println(angle);
+
+  int tempangle = (int)angle;
   angle = angle / 180 * 1400;
   //conversion from given angle to specific millisecond delay for wheels
   pre_orientation = orientation;
   
   stopWheels(200);
-  Serial.println("In angle");
-  Serial.println(dir);
-  Serial.println(angle);
 
   if (dir == RIGHT) {
     driveMotor1(128, LOW );
     driveMotor2(128, HIGH);
     delay(angle); //driving to right angle
 
-    orientation = orientation + angle;
+    orientation = orientation + tempangle;
   }
 
   if (dir == LEFT) {
@@ -713,17 +917,21 @@ void turnWheels(float angle, int dir) {
     driveMotor2(128, LOW);
     delay(angle);
 
-    orientation = orientation + (360 -angle);
+    orientation = orientation + (360 -tempangle);
   }
 
   if(orientation == 360) orientation = 0;
+
+  //orientationInfo();
   
   stopWheels(200);
 }
 //-------------------------------------------------------------------------------------------
-void resetOrientation(){
-  turnWheels(orientation, LEFT);
-  pre_orientation = -1;
+void setOrientation(int desiredOrientation){
+  int diff = desiredOrientation - orientation;
+  if(diff<0) diff = 360 + diff;
+  turnWheels(diff, RIGHT);
+  pre_orientation = orientation;
 }
 //-------------------------------------------------------------------------------------------
 int toReact() { //to determine if bumpers should react
@@ -795,6 +1003,21 @@ void IR_Avoid() {
 
 }
 //-------------------------------------------------------------------------------------------
+void sendStopSignal(){
+  
+}
+//-------------------------------------------------------------------------------------------
+void sendLocation(){
+  //takes current coordinate of robot and sends it to server.
+}
+//-------------------------------------------------------------------------------------------
+void recieveInfo(){
+
+  //take information received and use it to change:
+  //rec_cordX and rec_cordY as well as adapt stop signal
+  
+}
+//-------------------------------------------------------------------------------------------
 
 void search() {
   //ran when searching the enclosure for the base
@@ -802,7 +1025,7 @@ void search() {
   int exitstatus = -1;
   //variable for exit status
   
-  ending = -1;
+  int ending = -1;
   //used to determine what side of the enclosure we are on, necessary for proper turns
   //if at beginning, it is -1, when it reaches another end it is multiplied negative 1.
   //beginning -> -1
@@ -867,14 +1090,14 @@ void search() {
 
   if(exitstatus == 4){
     //need to go to base, run drive to base function
+    sendStopSignal();
     driveOntoBase();
+    sendLocation();
   }
 
   if(exitstatus == 5){
-    //drive to given location from robot.
-    //given location is in x and y coordinates,
-    //compare using our current coordinates and subtract.
-    driveToLocation();
+    
+    driveToLocation(rec_cordX, rec_cordY);
     //should be at base now, therefore need to call driveontobase function
   driveOntoBase();
   }
@@ -913,13 +1136,13 @@ void driveOntoBase() {
 
 }
 //--------------------------------------------------------------------------------------------
-void drivetoLocation(float rec_x, float rec_y){
+void driveToLocation(float rec_x, float rec_y){
   float distx = rec_x - cordX;
   float disty = rec_y - cordY;
 
   //passed in coordinates are based on North orientation, therefore robot must be set
   //to north orientation before being told to drive.
-  resetOrientation();
+  setOrientation(NORTH);
 
   if(distx < 0){
     //needs to go in -x direction, therefore to the left
@@ -932,7 +1155,7 @@ void drivetoLocation(float rec_x, float rec_y){
     go(distx, RIGHT);
   }
   
-  resetOrientation();
+  setOrientation(NORTH);
   if(disty < 0){
     //needs to go -y direction, therefore backwards
     disty = disty * -1;
@@ -944,9 +1167,71 @@ void drivetoLocation(float rec_x, float rec_y){
     go(disty, FORWS);
   }
 }
-
+//-------------------------------------------------------------------------------------------
+String printCoordinates(){
+ Serial.print("(x: ");
+ Serial.print(cordX);
+ Serial.print(",y: ");
+ Serial.print(cordY);
+ Serial.println(")");
+}
+//-------------------------------------------------------------------------------------------
+void oriToString(int input){
+  String tobereturned = "POOJA WHAT IS THIS BEHAVIOUR???";
+    switch(input){
+    case NORTH:
+     tobereturned = "NORTH";
+     break;
+     
+     case SOUTH:
+     tobereturned = "SOUTH";
+     break;
+     
+     case EAST:
+     tobereturned = "EAST";
+     break;
+     
+     case WEST:
+     tobereturned = "WEST";
+     break;
+     
+     case -1:
+     tobereturned = "UNINITIALIZED";
+     break;
+     
+     default:
+     tobereturned = "UNKNOWNN";
+     break;
+  }
+  Serial.println(tobereturned);
+}
+//-------------------------------------------------------------------------------------------
+void orientationInfo(){
+  Serial.print("Previous Orientation is ");
+  oriToString(pre_orientation);
+  Serial.print("Orientation is ");
+  oriToString(orientation);
+}
+//-------------------------------------------------------------------------------------------
+int initServoNum = 0;
+void initServo(){
+  tiltTo(10);
+  panTo(90);
+  gripAt(180);
+}
 //---------------------------------------------FUNCTION END--------------------------------------
+int poop = -1;
+
 void loop() {
-  //square
-  search();
+go(0.25, FORWS);
+delay(2000);
+  stopWheels();
+delay(2000);
+go(0.25, RIGHT);
+delay(5000);
+
+//  int r_value = digitalRead(RIGHTBUMPER);
+//  int l_value = digitalRead(LEFTBUMPER);
+//
+//  Serial.println(toReact());
 }
