@@ -1,6 +1,8 @@
-
 #include <Servo.h>
 #include <Arduino_LSM6DS3.h>
+#include "Comms.h"
+
+
 
 #define M1 7
 #define E1 6
@@ -27,6 +29,11 @@
 #define SOUTH 180
 #define WEST 270
 #define EAST 90
+
+const int idle= 0;
+const int SEARCHING = 1;
+const int FOUND = 2;
+const int DRIVING = 3;
 
 
 float wallLength =  1.7;
@@ -71,13 +78,17 @@ float cordX = 0.0, cordY = 0.0;
 int invertCSG = 0;
 //0 means checkColorSignal will return true if colorsignal > 1000
 //1 means checkColorSignal will return false if colorsignal > 1000
+int STATE = -1;
 
-boolean onBase = false;
+boolean taskComplete = false;
+boolean awaitingInstructions = false;
 //used to say if  the robot is on base;
 
 Servo tilt, pan, gripper;
 
 //wheel 1 is right wheel, wheel 2 is left
+
+CommsLink link{"Network", "Password", IPAddress(1, 2, 3, 4)};
 
 
 
@@ -117,6 +128,8 @@ void setup() {
     while (1);
   }
   // you're connected now, so print out the data:
+
+  link.init();
 }
 
 //--------------------------------------------FUNCTION BEGIN----------------------------------
@@ -140,7 +153,6 @@ void forInter2() //interrupt for right wheel (wheel 1)
 {
   count2++; //increment the count which represents the number of state transitions from high to low
 }
-
 //-------------------------------------------------------------------------------------------
 void driveMotors() {
   driveMotor1(wSpd, wRot); //right wheel
@@ -168,11 +180,6 @@ void forwards() {
   driveMotor2(128, HIGH);
 }
 //-------------------------------------------------------------------------------------------
-void backwards() {
-  driveMotor1(128, LOW);
-  driveMotor2(128, LOW);
-}
-//-------------------------------------------------------------------------------------------
 void backwards(float timing) { //possibly recall
   driveMotor1(128, LOW);
   driveMotor2(128, LOW);
@@ -197,54 +204,14 @@ void stopWheels() {
   driveMotor2(0, LOW);
 }
 //-------------------------------------------------------------------------------------------
-int forwardsBy(float distance) { //possibly recall
-  //at 128PWM speedis approx 0.18m/s
-
-  float time1 = 0.0, time2 = 0.0, diff = 0.0, dist = 0.0;
-  float timing = (distance / wheelSpeed) * 1000;
-  int exitstatus = 0;
-  time1 = millis();
-  forwards();
-  while (true) {
-    time2 = millis();
-    diff = time2 - time1;
-
-    if (toReact() == 1) {
-      exitstatus = 2;
-      break;
-    }
-
-    if (analogRead(IRSENSOR) >= 400) {
-      IR_Avoid();
-      exitstatus = 1;
-      break;
-    }
-
-    if (diff >= timing) {
-      exitstatus = 0;
-      break;
-    }
-  }
-
-  stopWheels();
-
-  if (exitstatus == 2) {
-    //barrier error, recall fucntion
-    reactBumpers();
-    dist = (diff * wheelSpeed * 1000);
-    forwardsBy(distance - dist);
-  }
-
-}
-//-------------------------------------------------------------------------------------------
-boolean checkColorSignal(){
+boolean checkColorSignal() {
   boolean result = false;
-  if(colorSignal >= 1000)result = true;//colorsignal greater than 1000 when on base
+  if (colorSignal >= 1000)result = true; //colorsignal greater than 1000 when on base
   else result = false;
 
-  if(invertCSG == 1){
-    if(result == true) result = false;
-    if(result == false) result = true;
+  if (invertCSG == 1) {
+    if (result == true) result = false;
+    if (result == false) result = true;
   }
 
   return result;
@@ -252,91 +219,91 @@ boolean checkColorSignal(){
 //-------------------------------------------------------------------------------------------
 int go(float distance, int dir) { //go function for driving the wheels
   /*
-   * exit status key:
-   * -1: not asserted (shouldn't happen)
-   * 0: clear run
-   * 1: IR sensor sensed incoming object
-   * 2: Bumper came in contact with object
-   * 4: for hitting homebase
-   * 5: for asserted stop signal.
-   */
+     exit status key:
+     -1: not asserted (shouldn't happen)
+     0: clear run
+     1: IR sensor sensed incoming object
+     2: Bumper came in contact with object
+     4: for hitting homebase
+     5: for asserted stop signal.
+  */
 
- 
-  if(distance <0){ //support for negative distances
+
+  if (distance < 0) { //support for negative distances
     distance = distance * -1;
-    if(dir == RIGHT) dir = LEFT;
-    if(dir == LEFT) dir = RIGHT;
-    if(dir == FORWS) dir = BACKWS;
-    if(dir == BACKWS) dir = FORWS;
+    if (dir == RIGHT) dir = LEFT;
+    if (dir == LEFT) dir = RIGHT;
+    if (dir == FORWS) dir = BACKWS;
+    if (dir == BACKWS) dir = FORWS;
   }
 
-   //switch case for the direction
-  //different directions require the wheels to be turned first before 
+  //switch case for the direction
+  //different directions require the wheels to be turned first before
   //moving forward.
 
-   int tempangle = 0;
+  int tempangle = 0;
   float angle = 0.0;
   int dire = -1;
-//Serial.println("support for negative distances checked");
-   switch (dir){
+  //Serial.println("support for negative distances checked");
+  switch (dir) {
     case LEFT:
-     Serial.println("going left");
+      Serial.println("going left");
       angle = 90;
       dire = LEFT;
 
       tempangle = (int)angle;
       angle = angle / 180 * 1400;
-        //conversion from given angle to specific millisecond delay for wheels
+      //conversion from given angle to specific millisecond delay for wheels
       pre_orientation = orientation;
-          driveMotor1(0, LOW);
-          driveMotor2(0, LOW);
-          delay(200);
-        if (dire == RIGHT) {
-          driveMotor1(128, LOW );
-          driveMotor2(128, HIGH);
-          delay(angle); //driving to right angle
-          orientation = orientation + tempangle;
-        }
-        if (dire == LEFT) {
+      driveMotor1(0, LOW);
+      driveMotor2(0, LOW);
+      delay(200);
+      if (dire == RIGHT) {
+        driveMotor1(128, LOW );
+        driveMotor2(128, HIGH);
+        delay(angle); //driving to right angle
+        orientation = orientation + tempangle;
+      }
+      if (dire == LEFT) {
         driveMotor1(128, HIGH );
         driveMotor2(128, LOW);
         delay(angle);
-        orientation = orientation + (360 -tempangle);
-        }
-        if(orientation == 360) orientation = 0;
-          driveMotor1(0, LOW);
-          driveMotor2(0, LOW);
-          delay(200);
+        orientation = orientation + (360 - tempangle);
+      }
+      if (orientation == 360) orientation = 0;
+      driveMotor1(0, LOW);
+      driveMotor2(0, LOW);
+      delay(200);
       break;
 
     case RIGHT:
-  Serial.println("going right");
+      Serial.println("going right");
       angle = 90;
       dire = RIGHT;
       tempangle = (int)angle;
       angle = angle / 180 * 1400;
-        //conversion from given angle to specific millisecond delay for wheels
+      //conversion from given angle to specific millisecond delay for wheels
       pre_orientation = orientation;
-          driveMotor1(0, LOW);
-          driveMotor2(0, LOW);
-          delay(200);
-        if (dire == RIGHT) {
-          driveMotor1(128, LOW );
-          driveMotor2(128, HIGH);
-          delay(angle); //driving to right angle
-          orientation = orientation + tempangle;
-        }
-        if (dire == LEFT) {
+      driveMotor1(0, LOW);
+      driveMotor2(0, LOW);
+      delay(200);
+      if (dire == RIGHT) {
+        driveMotor1(128, LOW );
+        driveMotor2(128, HIGH);
+        delay(angle); //driving to right angle
+        orientation = orientation + tempangle;
+      }
+      if (dire == LEFT) {
         driveMotor1(128, HIGH );
         driveMotor2(128, LOW);
         delay(angle);
-        orientation = orientation + (360 -tempangle);
-        }
-        if(orientation == 360) orientation = 0;
-          driveMotor1(0, LOW);
-          driveMotor2(0, LOW);
-          delay(200);
-      
+        orientation = orientation + (360 - tempangle);
+      }
+      if (orientation == 360) orientation = 0;
+      driveMotor1(0, LOW);
+      driveMotor2(0, LOW);
+      delay(200);
+
       break;
 
     case BACKWS:
@@ -346,259 +313,159 @@ int go(float distance, int dir) { //go function for driving the wheels
       dire = RIGHT;
       tempangle = (int)angle;
       angle = angle / 180 * 1400;
-        //conversion from given angle to specific millisecond delay for wheels
+      //conversion from given angle to specific millisecond delay for wheels
       pre_orientation = orientation;
-          driveMotor1(0, LOW);
-          driveMotor2(0, LOW);
-          delay(200);
-        if (dire == RIGHT) {
-          driveMotor1(128, LOW );
-          driveMotor2(128, HIGH);
-          delay(angle); //driving to right angle
-          orientation = orientation + tempangle;
-        }
-        if (dire == LEFT) {
+      driveMotor1(0, LOW);
+      driveMotor2(0, LOW);
+      delay(200);
+      if (dire == RIGHT) {
+        driveMotor1(128, LOW );
+        driveMotor2(128, HIGH);
+        delay(angle); //driving to right angle
+        orientation = orientation + tempangle;
+      }
+      if (dire == LEFT) {
         driveMotor1(128, HIGH );
         driveMotor2(128, LOW);
         delay(angle);
-        orientation = orientation + (360 -tempangle);
-        }
-        if(orientation == 360) orientation = 0;
-          driveMotor1(0, LOW);
-          driveMotor2(0, LOW);
-          delay(200);
-      
+        orientation = orientation + (360 - tempangle);
+      }
+      if (orientation == 360) orientation = 0;
+      driveMotor1(0, LOW);
+      driveMotor2(0, LOW);
+      delay(200);
+
       break;
 
     case FORWS:
-    Serial.println("going forw");
-        pre_orientation = orientation;
+      Serial.println("going forw");
+      pre_orientation = orientation;
       break;
-   }
-  
-    int exitstatus = -1;
-    //exit status
-    float addtoX = 0.0, addtoY = 0.0;
-    float time1 = 0.0, time2 = 0.0, diff = 0.0, curdist = 0.0; //initial variables
-  
-    float timing = (distance / wheelSpeed) * 1000; //converting given distance to amount of time
-    
-    time1 = millis(); //takes time before while loop begins
-    forwards(); //makes robot go forward
-    while (true) { //for driving
-      time2 = millis();
-      diff = time2 - time1;
-      curdist = diff * wheelSpeed / 1000;
+  }
 
-      //essential idea is that the time2 is updated for each while loop run
-      //the diff is then checked with timing, if it equal to or greater than the timing
-      //then the robot has travelled the required distance and it will break out of the loop
-      //curdist is used to track robot movement so as to properly update coordinates
-      //if there is an error that caused robot to stop traversing/
+  int exitstatus = -1;
+  //exit status
+  float addtoX = 0.0, addtoY = 0.0;
+  float time1 = 0.0, time2 = 0.0, diff = 0.0, curdist = 0.0; //initial variables
 
-      if(stopSignal == 1){
-        //have been told to stop, need to break out of both while loops
-        exitstatus = 5;
-        break;
-      }
-      if (analogRead(IRSENSOR) >= 400) {
-        //ir sensor senses something close
+  float timing = (distance / wheelSpeed) * 1000; //converting given distance to amount of time
+
+  time1 = millis(); //takes time before while loop begins
+  forwards(); //makes robot go forward
+  while (true) { //for driving
+    time2 = millis();
+    diff = time2 - time1;
+    curdist = diff * wheelSpeed / 1000;
+
+    //essential idea is that the time2 is updated for each while loop run
+    //the diff is then checked with timing, if it equal to or greater than the timing
+    //then the robot has travelled the required distance and it will break out of the loop
+    //curdist is used to track robot movement so as to properly update coordinates
+    //if there is an error that caused robot to stop traversing/
+
+    checkStopSignal();
+    if (stopSignal == 1) {
+      //have been told to stop, need to break out of both while loops
+      exitstatus = 5;
+      break;
+    }
+    if (analogRead(IRSENSOR) >= 400) {
+      //ir sensor senses something close
       exitstatus = 1;
       break;
-      }
-   Serial.print(toReact());
-      if (toReact() == 1) {
-        
-        //bumpers are hit
-        exitstatus = 2;
-        break;
-      }
-
-      colorSignal = analogRead(SENSECOLOUR); //read from ir sensor
-      if(checkColorSignal()){
-        exitstatus = 4;
-        break;
-      }
-      
-      if (diff >= timing) {
-        //drove full length
-        exitstatus = 0;
-        break;
-      }
-
     }
+    // Serial.print(toReact());
+    if (toReact() == 1) {
+
+      //bumpers are hit
+      exitstatus = 2;
+      break;
+    }
+
+    colorSignal = analogRead(SENSECOLOUR); //read from ir sensor
+    if (checkColorSignal()) {
+      exitstatus = 4;
+      break;
+    }
+
+    if (diff >= timing) {
+      //drove full length
+      exitstatus = 0;
+      break;
+    }
+
+  }
 
   driveMotor1(0, LOW);
   driveMotor2(0, LOW);
   delay(200);
 
   //designed to properly update coordinates properly based on the orientation of the robot
-  if(pre_orientation == -1) pre_orientation = NORTH;
-   switch(pre_orientation){
+  if (pre_orientation == -1) pre_orientation = NORTH;
+  switch (pre_orientation) {
     case NORTH:
-    if(dir == FORWS) addtoY = curdist;
-    else if(dir == BACKWS) addtoY = curdist * -1;
-    else if(dir == RIGHT) addtoX = curdist;
-    else if (dir == LEFT) addtoX = curdist * -1;
-    break;
-    
+      if (dir == FORWS) addtoY = curdist;
+      else if (dir == BACKWS) addtoY = curdist * -1;
+      else if (dir == RIGHT) addtoX = curdist;
+      else if (dir == LEFT) addtoX = curdist * -1;
+      break;
+
     case EAST:
-    if(dir == FORWS) addtoX = curdist;
-    else if(dir == BACKWS) addtoX = curdist * -1;
-    else if(dir == RIGHT) addtoY = curdist * -1;
-    else if (dir == LEFT) addtoY = curdist;
-    break;
+      if (dir == FORWS) addtoX = curdist;
+      else if (dir == BACKWS) addtoX = curdist * -1;
+      else if (dir == RIGHT) addtoY = curdist * -1;
+      else if (dir == LEFT) addtoY = curdist;
+      break;
 
     case SOUTH:
-    if(dir == FORWS) addtoY = curdist * -1;
-    else if(dir == BACKWS) addtoY = curdist;
-    else if(dir == RIGHT) addtoX = curdist * -1;
-    else if (dir == LEFT) addtoX = curdist;
-    break;
+      if (dir == FORWS) addtoY = curdist * -1;
+      else if (dir == BACKWS) addtoY = curdist;
+      else if (dir == RIGHT) addtoX = curdist * -1;
+      else if (dir == LEFT) addtoX = curdist;
+      break;
 
     case WEST:
-    if(dir == FORWS) addtoX = curdist * -1;
-    else if(dir == BACKWS) addtoX = curdist;
-    else if(dir == RIGHT) addtoY = curdist;
-    else if (dir == LEFT) addtoY = curdist * -1;
-    break;
-   }
-
-   cordX = cordX + addtoX;
-   cordY = cordY + addtoY;
-
-    switch(exitstatus){
-      //exitstatus info
-      case 0:
-      Serial.println("Exit Status 0: Clear Run.");
+      if (dir == FORWS) addtoX = curdist * -1;
+      else if (dir == BACKWS) addtoX = curdist;
+      else if (dir == RIGHT) addtoY = curdist;
+      else if (dir == LEFT) addtoY = curdist * -1;
       break;
-      case 1:
-      Serial.println("Exit Status 1: IR Error.");
-      break;
-      case 2:
-      Serial.println("Exit Status 2: Bumper Barrier Error.");
-      break;
-      case 4:
-      Serial.println("Exit Status 4: Color signal asserted.");
-      break;
-      case 5:
-      Serial.println("Exit Status 5: Stop signal asserted.");
-      break;
-    }
-
-    printCoordinates();
-
-    if (exitstatus == 2) {
-      //barrier error, recall fucntion
-      float totravel = distance - curdist;
-      exit;
-      //go(totravel, FORWS);
-    }
-
-    
-    return exitstatus;
-}
-//-------------------------------------------------------------------------------------------
-int goCardinal(float distance, int cardinal){
-  //set the orientation of the robot
-  setOrientation(cardinal);
-
-  
-  //simple move forward
-    int exitstatus = -1;
-    //exit status
-    float addtoX = 0.0, addtoY = 0.0;
-    float time1 = 0.0, time2 = 0.0, diff = 0.0, curdist = 0.0; //initial variables
-    float timing = (distance / wheelSpeed) * 1000; //converting given distance to amount of time
-    time1 = millis();
-    forwards();
-    while (true) { 
-      time2 = millis();
-      diff = time2 - time1;
-      curdist = diff * wheelSpeed / 1000;
-      if(stopSignal == 1){
-        exitstatus = 5;
-        break;
-      }
-      if (analogRead(IRSENSOR) >= 400) {
-      exitstatus = 1;
-      break;
-      }
-      if (toReact() == 1) {
-        exitstatus = 2;
-        break;
-      }
-      colorSignal = analogRead(SENSECOLOUR); //read from ir sensor
-      if(checkColorSignal()){
-        exitstatus = 4;
-        break;
-      }
-      if (diff >= timing) {
-        exitstatus = 0;
-        break;
-      }
-
-    }
-  driveMotor1(0, LOW);
-  driveMotor2(0, LOW);
-  delay(200);
-
- 
-  //update coordinates based on cardinal
-
-  switch(cardinal){
-    case NORTH:
-    addtoY = curdist;
-    break;
-    case SOUTH:
-    addtoY = curdist * -1;
-    break;
-    case EAST:
-    addtoX = curdist;
-    break;
-    case WEST:
-    addtoX = curdist * -1;
-    break;
   }
 
   cordX = cordX + addtoX;
   cordY = cordY + addtoY;
 
-
-    //standard exit status info and coordinate info
-     switch(exitstatus){
-      //exitstatus info
-      case 0:
+  switch (exitstatus) {
+    //exitstatus info
+    case 0:
       Serial.println("Exit Status 0: Clear Run.");
       break;
-      case 1:
+    case 1:
       Serial.println("Exit Status 1: IR Error.");
       break;
-      case 2:
+    case 2:
       Serial.println("Exit Status 2: Bumper Barrier Error.");
       break;
-      case 4:
+    case 4:
       Serial.println("Exit Status 4: Color signal asserted.");
       break;
-      case 5:
+    case 5:
       Serial.println("Exit Status 5: Stop signal asserted.");
       break;
-    }
+  }
 
-    printCoordinates();
+  printCoordinates();
+//
+//  if (exitstatus == 2) {
+//    //barrier error, recall fucntion
+//    float totravel = distance - curdist;
+//    exit;
+//    //go(totravel, FORWS);
+//  }
 
-    if (exitstatus == 2) {
-      //barrier error, recall fucntion
-      float totravel = distance - curdist;
-      exit;
-      //go(totravel, FORWS);
-    }
 
-    
-    return exitstatus;
-  
+  return exitstatus;
 }
-
 //-------------------------------------------------------------------------------------------
 void gripAt(int angle) //gripping robot
 
@@ -639,259 +506,22 @@ void tiltTo(int angle) //tilting robot
   tilt.write(angle);
 }
 //-------------------------------------------------------------------------------------------
-int convertToPWM(int value) { //converts a given speed (m/s) to PWM value.
-  int result = (value / 0.0325) * (255 / (6 * pi));
-  return result;
-}
-//-------------------------------------------------------------------------------------------
-float getSpeed1() //wheel 1 aka right wheel aka pin 2 aka interrupt 0
-{
-  //Serial.println("Getting Right Wheel Speed");
-  int time2;
-  int time1;
-
-  time1 = millis();
-  count = 0; //wheel 1 counter
-
-
-  while (count <= 16) {
-    Serial.print("");
-  }
-
-  Serial.println("");
-  time2 = millis();
-  float diff = time2 - time1;
-
-  //uses the wheel encoders to get the time for one wheel rotation
-  //(one rotation is 16 encoder counts)
-  //encoder count is run through the interrupt functions above
-
-
-  float dist = 2 * pi * 0.0325;
-  //one wheel rotation is dist m.
-
-  float wheelSpeed = dist / (diff / 1000);
-  //calculates the speed.
-  
-  return wheelSpeed;
-}
-//-------------------------------------------------------------------------------------------
-float getSpeed2() //wheel 2 aka left wheel aka pin 3 aka interrupt 1
-{
-  //Serial.println("Getting left wheel speed");
-  int time2;
-  int time1;
-
-  time1 = millis();
-  count2 = 0;
-
-
-  while (count2 <= 16) {
-    Serial.print("");
-  }
-
-  Serial.println("");
-  time2 = millis();
-  float diff = time2 - time1;
-
-  //uses the wheel encoders to get the time for one wheel rotation
-  //(one rotation is 16 encoder counts)
-  //encoder count is run through the interrupt functions above
-
-
-  float dist = 2 * pi * 0.0325;
-  //one wheel rotation is dist m.
-
-  float wheelSpeed = dist / (diff / 1000);
-  //calculates the speed.
-  
-  return wheelSpeed;
-}
-//-------------------------------------------------------------------------------------------
-void adaptToSpeed() //adapting wheels of robot to drive straight
-{
-  Serial.println("Adapting");
-  adaptwheel1(dSpd);
-  adaptwheel2(dSpd);//used to be dSpd
-  Serial.println("Adapted");
-  driveMotor1(wSpd1, wRot1);
-  driveMotor2(wSpd2, wRot2);
-}
-//-------------------------------------------------------------------------------------------
-void adaptwheel1(float desired) //adapting wheel 1 to the speed given through method paramters
-{
-
-  //aSpd1 = getSpeed1();
-  //Serial.println((String)"Wheel 1 PWM BEFORE "+wSpd1);
-
-  float diff = desired - aSpd1;
-  //
-  int r_wheel_change = 0;
-
-  if (diff >= 0.01 || diff <= -0.01) r_wheel_change = (int) (K * (diff)); //returns change for pulse width modulations
-  else r_wheel_change = 0;
-  wSpd1 += r_wheel_change;
-  if (wSpd1 >= 255) wSpd1 = 250;
-
-
-
-  //Serial.println((String)"Wheel 1 PWM AFTER "+wSpd1);
-}
-//-------------------------------------------------------------------------------------------
-void adaptwheel2(float desired) //adapting wheel 2 to the speed given through method paramters
-{
-  //aSpd2 = getSpeed2();
-  //Serial.println((String)"Wheel 2 PWM BEFORE "+wSpd2);
-
-  float diff = desired - aSpd2;
-  int l_wheel_change = 0;
-
-  if (diff >= 0.01 || diff <= -0.01) l_wheel_change = (int)(K * (diff)); //returns change for pulse width modulations
-  else l_wheel_change = 0;
-  wSpd2 += l_wheel_change;
-  if (wSpd2 >= 255) wSpd2 = 250;
-
-
-  //Serial.println((String)"Wheel 2 PWM After "+wSpd2);
-}
-//-------------------------------------------------------------------------------------------
-float getIMUAccel() { //gets acceleration of robot from IMU
-  float accelx = 0;
-  float accely = 0;
-  float accelz = 0;
-
-  if (IMU.accelerationAvailable())
-  {
-    IMU.readAcceleration(accelx, accely, accelz);
-
-    accelx = accelx * 9.81;
-    accely = accely * 9.81;
-
-    float groundAccel = sqrt((accelx * accelx) + (accely * accely));
-    //combines them using pythagoras
-
-    if (groundAccel < 0.30) groundAccel = 0;
-    //threshold for some acceleration.
-
-    return groundAccel;
-  }
-  else return -1;
-}
-//-------------------------------------------------------------------------------------------
-float getIMUGyroX() { //gets x component from gyroscope, in degrees/s
-  float x, y, z;
-  if (IMU.gyroscopeAvailable()) {
-    IMU.readGyroscope(x, y, z);
-
-    return x;
-  }
-  else return -1;
-}
-//-------------------------------------------------------------------------------------------
-float getIMUGyroY() { //gets y component from gyroscope, in degrees/s
-  float x, y, z;
-  if (IMU.gyroscopeAvailable()) {
-    IMU.readGyroscope(x, y, z);
-    return z;
-  }
-  else return -1;
-}
-//-------------------------------------------------------------------------------------------
-float getIMUGyroZ() { //gets z component from gyroscope, in degrees/s
-
-  float x, y, z;
-  if (IMU.gyroscopeAvailable()) {
-    IMU.readGyroscope(x, y, z);
-    return y;
-  }
-  else return -1;
-}
-//-------------------------------------------------------------------------------------------
-float getVertAccel() { //gets vertical acceleration from IMU
-
-  float accelx = 0;
-  float accely = 0;
-  float accelz = 0;
-
-  if (IMU.accelerationAvailable())
-  {
-    IMU.readAcceleration(accelx, accely, accelz);
-
-    accelz = accelz * 9.81;
-
-    float groundAccel = accelz;
-
-    return groundAccel;
-  }
-  else return -1;
-}
-//-------------------------------------------------------------------------------------------
-float getWDistance() { //gets distance travelled based on wheel encoders
-  aSpd1 = getSpeed1();
-  aSpd2 = getSpeed2();
-
-  curVeloc = (aSpd1 + aSpd2) / 2;
-  curTime = millis() / 1000;
-  float timediff = curTime - preTime;
-
-  float addeddistance = ((curVeloc + preVeloc) / 2) * timediff;
-  distance = distance + addeddistance;
-
-  preTime = curTime;
-  preVeloc = curVeloc;
-
-  return distance;
-}
-//-------------------------------------------------------------------------------------------
-float getWAccel() //gets robot acceleration based on wheel speeds
-{
-  aSpd1 = getSpeed1();
-  aSpd2 = getSpeed2();
-
-  curVeloc = (aSpd1 + aSpd2) / 2; //average speed of robot
-  curTime = millis() / 1000;
-  float timediff = curTime - preTime;
-
-  float accelNow = ((curVeloc - preVeloc) / timediff); //kinematics functions
-  return accelNow;
-}
-//-------------------------------------------------------------------------------------------
-void printInfo() {//possibly recall
-  float accel = getWAccel();
-  aSpd1 = getSpeed1();
-  aSpd2 = getSpeed2();
-  float dists = getWDistance();
-
-  Serial.println("Robot Movement Information: ");
-  Serial.print("Right Wheel Velocity: ");
-  Serial.print(aSpd1);
-  Serial.println(" m/s");
-  Serial.print("Left Wheel Velocity: ");
-  Serial.print(aSpd2);
-  Serial.println(" m/s");
-  Serial.print("Current Aceelaration: ");
-  Serial.print(accel);
-  Serial.println(" m/s2");
-  Serial.print("Total Distance Travelled: ");
-  Serial.print(dists);
-  Serial.println(" m");
-}
-//-------------------------------------------------------------------------------------------
 void turnWheels(float angle, int dir) {
+  if(angle != 0){
   //turnwheels with the specified angle in the specified direction
   //either RIGHT or LEFT
   String direct = " ";
-//Serial.println("in turn wheels");
-  if(angle<0){
+  //Serial.println("in turn wheels");
+  if (angle < 0) {
     angle = angle * -1;
-    if(dir == RIGHT) dir = LEFT;
-    if(dir == LEFT) dir = RIGHT;
+    if (dir == RIGHT) dir = LEFT;
+    if (dir == LEFT) dir = RIGHT;
   }
   //Serial.println("passed negative support");
 
-    if(dir == RIGHT) direct = " degrees to the RIGHT";
+  if (dir == RIGHT) direct = " degrees to the RIGHT";
   else direct == " degrees to the LEFT";
-  
+
   Serial.print("Turning wheels ");
   Serial.print(dir);
   Serial.print(" + ");
@@ -901,7 +531,7 @@ void turnWheels(float angle, int dir) {
   angle = angle / 180 * 1400;
   //conversion from given angle to specific millisecond delay for wheels
   pre_orientation = orientation;
-  
+
   stopWheels(200);
 
   if (dir == RIGHT) {
@@ -917,19 +547,20 @@ void turnWheels(float angle, int dir) {
     driveMotor2(128, LOW);
     delay(angle);
 
-    orientation = orientation + (360 -tempangle);
+    orientation = orientation + (360 - tempangle);
   }
 
-  if(orientation == 360) orientation = 0;
+  if (orientation >= 360) orientation = orientation = orientation - 360;
 
   //orientationInfo();
-  
+
   stopWheels(200);
+  }
 }
 //-------------------------------------------------------------------------------------------
-void setOrientation(int desiredOrientation){
+void setOrientation(int desiredOrientation) {
   int diff = desiredOrientation - orientation;
-  if(diff<0) diff = 360 + diff;
+  if (diff < 0) diff = 360 + diff;
   turnWheels(diff, RIGHT);
   pre_orientation = orientation;
 }
@@ -996,147 +627,227 @@ void readIRSensors() {
 //-------------------------------------------------------------------------------------------
 void IR_Avoid() {
 
-//called when IR sensor is hit
+  //called when IR sensor is hit
   backwards(300);
   stopWheels(500);
   turnWheels(180, RIGHT);
 
 }
 //-------------------------------------------------------------------------------------------
-void sendStopSignal(){
-  
-}
-//-------------------------------------------------------------------------------------------
-void sendLocation(){
-  //takes current coordinate of robot and sends it to server.
-}
-//-------------------------------------------------------------------------------------------
-void recieveInfo(){
+void forceSTATE(int stateIn) {
+  switch (stateIn){
+    case idle:
+    link.force_idle();
+    STATE = idle;
+    break;
+    case SEARCHING:
+    STATE= SEARCHING;
+    break;
+    case FOUND:
+    link.notify_found();
+    STATE = FOUND;
+    break;
+    case DRIVING:
+    link.force_driving(12.7, 8.5);
+    STATE = DRIVING;
+    break;
+  }
 
-  //take information received and use it to change:
-  //rec_cordX and rec_cordY as well as adapt stop signal
-  
+}
+//-------------------------------------------------------------------------------------------
+void getSTATE(){
+  switch (link.update()) {
+    case CommsLink::IDLE:
+    forceSTATE(idle);
+      break;
+    case CommsLink::SEARCHING:
+    forceSTATE(SEARCHING);
+      break;
+    case CommsLink::FOUND:
+    forceSTATE(FOUND);
+      break;
+    case CommsLink::DRIVING:
+    forceSTATE(DRIVING);
+      break;
+  }
+}
+//-------------------------------------------------------------------------------------------
+void checkStopSignal() {
+  getSTATE();
+  if (STATE ==  FOUND || STATE == DRIVING) stopSignal = 1;
+  //should stop if we have been notified that it is found
+  //or have been given a location to drive to.
+}
+//-------------------------------------------------------------------------------------------
+void sendLocation() {
+  //takes current coordinate of robot and sends it to server.
+  link.notify_target(3, cordX + 0.25, cordY + 0.25);
+  link.notify_target(2, cordX + 0.25, cordY + 0.25);
+  //offsetted location for other robots.
 }
 //-------------------------------------------------------------------------------------------
 
 void search() {
   //ran when searching the enclosure for the base
+  int state = -1;
+  if (!taskComplete && !awaitingInstructions) {
+    //variable for exit status
 
-  int exitstatus = -1;
-  //variable for exit status
-  
-  int ending = -1;
-  //used to determine what side of the enclosure we are on, necessary for proper turns
-  //if at beginning, it is -1, when it reaches another end it is multiplied negative 1.
-  //beginning -> -1
-  //end -> 1;
-  
-  float width = 0.0;
-  //width of enclosure traversed.
-  
-  float preCordX = -1, preCordY = -1;
-  
-  invertCSG = 0;
-  //needs to stop when reached base, therefore when colorSignal is over 1000
-  //this means that we do not invertCSG
-  
-  while (true) { 
-    
-    exitstatus = go(wallLength, FORWS);
-    //first begins with traveling the length of the enclosure
-    
-    if (exitstatus == 0) {
-      //traversed the whole length
-      //at new point of enclosure therefore change ending.
-      ending = ending * -1;
-      
-      if (width <= 0.60) {
-        //individual sections are 60cm each therefore if wehave reached 60cm in width
-        //we can no longer traverse unless we will collide with another robot
-        
-        if (ending == 1) {
-          //we are at end of enclosure
-          //offset to the right to search another part of our section
-          go(0.15, RIGHT);
-          turnWheels(90, RIGHT);
+    int ending = -1;
+    //used to determine what side of the enclosure we are on, necessary for proper turns
+    //if at beginning, it is -1, when it reaches another end it is multiplied negative 1.
+    //beginning -> -1
+    //end -> 1;
+
+    float width = 0.0;
+    //width of enclosure traversed.
+
+    float preCordX = -1, preCordY = -1;
+
+    invertCSG = 0;
+    //needs to stop when reached base, therefore when colorSignal is over 1000
+    //this means that we do not invertCSG
+
+    while (true) {
+
+     state = go(wallLength, FORWS);
+      //first begins with traveling the length of the enclosure
+
+      if (state == 0) {
+        //traversed the whole length
+        //at new point of enclosure therefore change ending.
+        ending = ending * -1;
+
+        if (width < 0.60) {
+          //individual sections are 60cm each therefore if wehave reached 60cm in width
+          //we can no longer traverse unless we will collide with another robot
+
+          if (ending == 1) {
+            //we are at end of enclosure
+            //offset to the right to search another part of our section
+            turnWheels(90, RIGHT);
+            go(0.15, FORWS);
+            turnWheels(90, RIGHT);
+          }
+          else
+          {
+            //at the beginning therefore need to turn left to search more of the section
+            turnWheels(90, LEFT);
+            go(0.15, FORWS);
+            turnWheels(90, LEFT);
+          }
+
+          width = width + 0.15;
+          //increment the width
         }
         else
         {
-          //at the beginning therefore need to turn left to search more of the section
-          go(0.15,LEFT);
-          turnWheels(90, LEFT);
-        }
+          //individual sections are 60cm each therefore if wehave reached 60cm in width
+          //we can no longer traverse unless we will collide with another robot
 
-        width = width +0.15;
-        //increment the width
+          stopWheels();
+          forceSTATE(idle);
+          awaitingInstructions = true;
+          break;
+        }
       }
-      else
-      {
-        stopWheels();
-        //individual sections are 60cm each therefore if wehave reached 60cm in width
-        //we can no longer traverse unless we will collide with another robot
+      else   if (state == 2) {
+        //barrier error, recall fucntion
+        //call react bumpers to realign
+        
+      } 
+      else if (state == 4) {
+        //have hit homebase need to run homebase code, break out of while loop
+        break;
+      }
+      else if (state == 5) {
+        //have encountered stop signal therefore need to break out of while loop
+        break;
+      }
+
+    } //end while loop
+  }
+  
+    if(awaitingInstructions && !taskComplete){
+      //needs to be told what state to be put in next 
+      while(true){
+        checkStopSignal();
+        if(stopSignal == 1){
+          awaitingInstructions = false;
+          state = 5;
+          break;
+        }
       }
     }
-    else if(exitstatus == 4){
-    //have hit homebase need to run homebase code, break out of while loop
-    break;
-   }
-   else if(exitstatus == 5){
-    //have encountered stop signal therefore need to break out of while loop
-    break;
-   }
 
-  } //end while loop
+    if (state== 4 && !taskComplete) {
+      //need to go to base, run drive to base function
+      //sendStopSignal();
+      forceSTATE(FOUND);//changes our state and other robots to found
+      driveOntoBase(); //drive onto the base
+      sendLocation(); //send our location to other robots
+      forceSTATE(idle); //change our state to idle since now on board
+      taskComplete = true;
+    }
 
-  if(exitstatus == 4){
-    //need to go to base, run drive to base function
-    sendStopSignal();
-    driveOntoBase();
-    sendLocation();
-  }
+    if (state == 5 && !taskComplete) {
+      while (STATE != DRIVING){
+        getSTATE();
+      }
 
-  if(exitstatus == 5){
-    
-    driveToLocation(rec_cordX, rec_cordY);
-    //should be at base now, therefore need to call driveontobase function
-  driveOntoBase();
-  }
+      //once in driving state, get coordinates and drive to location.
+      rec_cordX = link.get_target_x();
+      rec_cordY = link.get_target_y();
+      driveToLocation(rec_cordX, rec_cordY);
 
+      forceSTATE(idle); //let other memebers know we have reached the base
+      stopWheels(); //stop the wheels of the robot
+      taskComplete = true; //set taks complete to true so robot no longer conitnues to traverse
 
+    }
+
+    if(taskComplete && (awaitingInstructions == false)){
+      Serial.println("Task Complete");
+    }
 }
 //--------------------------------------------------------------------------------------------
 void driveOntoBase() {
-  int exitstatus = 0;
+  int exitstatus = -1;
   int turnangle = 90;
   invertCSG = 1; //inverts the values of checkColorSignal();
   //now go function will exit if the colorsignal < 1000 (therefore will exit if robot is not
   //not on base
-  
-  while(exitstatus != 0){
+
+  while (exitstatus != 0) {
     //if exitstatus, it was a clear run
     //therefore  robot drove onto base properly
-    
-  exitstatus = go(0.25, FORWS);; //go forwards onto the base the robot length
 
-  if(exitstatus == 4) {
-    //drove off of base, needs to recalibrate and find direction of base.
-    while(colorSignal<1000){
-      turnWheels(turnangle, RIGHT);
-      colorSignal = analogRead(SENSECOLOUR);
-      turnangle = turnangle+90;
+    exitstatus = go(0.25, FORWS);; //go forwards onto the base the robot length
 
-      //continues turning and reading the colorsignal, thatis
-      //turns 90, reads from colorsignal, if it is not a greater than a 1000 then turn again
+    if (exitstatus == 4) {
+      //drove off of base, needs to recalibrate and find direction of base.
+      while (colorSignal < 1000) {
+        turnWheels(turnangle, RIGHT);
+        colorSignal = analogRead(SENSECOLOUR);
+        turnangle = turnangle + 90;
+
+        //continues turning and reading the colorsignal, thatis
+        //turns 90, reads from colorsignal, if it is not a greater than a 1000 then turn again
+      }
+
+      //will exit while loop if color signal is greater than 1000
+      //therefore on base and should drive up on it
     }
+  }
 
-    //will exit while loop if color signal is greater than 1000
-    //therefore on base and should drive up on it
-  }
-  }
+  //got out of while loop so exit status is 0, completely on base
+  //let other memebers know we have reached the base
+  stopWheels();
+  //stop the wheels of the robot
 
 }
 //--------------------------------------------------------------------------------------------
-void driveToLocation(float rec_x, float rec_y){
+void driveToLocation(float rec_x, float rec_y) {
   float distx = rec_x - cordX;
   float disty = rec_y - cordY;
 
@@ -1144,19 +855,19 @@ void driveToLocation(float rec_x, float rec_y){
   //to north orientation before being told to drive.
   setOrientation(NORTH);
 
-  if(distx < 0){
+  if (distx < 0) {
     //needs to go in -x direction, therefore to the left
     distx = distx * -1;
-    go(distx, LEFT);  
+    go(distx, LEFT);
   }
   else
   {
     //positive x direction therefore go right
     go(distx, RIGHT);
   }
-  
+
   setOrientation(NORTH);
-  if(disty < 0){
+  if (disty < 0) {
     //needs to go -y direction, therefore backwards
     disty = disty * -1;
     go(disty, BACKWS);
@@ -1168,70 +879,63 @@ void driveToLocation(float rec_x, float rec_y){
   }
 }
 //-------------------------------------------------------------------------------------------
-String printCoordinates(){
- Serial.print("(x: ");
- Serial.print(cordX);
- Serial.print(",y: ");
- Serial.print(cordY);
- Serial.println(")");
+String printCoordinates() {
+  Serial.print("(x: ");
+  Serial.print(cordX);
+  Serial.print(",y: ");
+  Serial.print(cordY);
+  Serial.println(")");
 }
 //-------------------------------------------------------------------------------------------
-void oriToString(int input){
+void oriToString(int input) {
   String tobereturned = "POOJA WHAT IS THIS BEHAVIOUR???";
-    switch(input){
+  switch (input) {
     case NORTH:
-     tobereturned = "NORTH";
-     break;
-     
-     case SOUTH:
-     tobereturned = "SOUTH";
-     break;
-     
-     case EAST:
-     tobereturned = "EAST";
-     break;
-     
-     case WEST:
-     tobereturned = "WEST";
-     break;
-     
-     case -1:
-     tobereturned = "UNINITIALIZED";
-     break;
-     
-     default:
-     tobereturned = "UNKNOWNN";
-     break;
+      tobereturned = "NORTH";
+      break;
+
+    case SOUTH:
+      tobereturned = "SOUTH";
+      break;
+
+    case EAST:
+      tobereturned = "EAST";
+      break;
+
+    case WEST:
+      tobereturned = "WEST";
+      break;
+
+    case -1:
+      tobereturned = "UNINITIALIZED";
+      break;
+
+    default:
+      tobereturned = "UNKNOWNN";
+      break;
   }
   Serial.println(tobereturned);
 }
 //-------------------------------------------------------------------------------------------
-void orientationInfo(){
+void orientationInfo() {
   Serial.print("Previous Orientation is ");
   oriToString(pre_orientation);
   Serial.print("Orientation is ");
   oriToString(orientation);
 }
-//-------------------------------------------------------------------------------------------
-int initServoNum = 0;
-void initServo(){
-  tiltTo(10);
-  panTo(90);
-  gripAt(180);
-}
 //---------------------------------------------FUNCTION END--------------------------------------
 int poop = -1;
 
 void loop() {
-go(0.25, FORWS);
-delay(2000);
+  go(0.25, FORWS);
+  delay(2000);
   stopWheels();
-delay(2000);
-go(0.25, RIGHT);
-delay(5000);
+  delay(2000);
+  go(0.25, RIGHT);
+  delay(5000);
 
-//  int r_value = digitalRead(RIGHTBUMPER);
-//  int l_value = digitalRead(LEFTBUMPER);
-//
-//  Serial.println(toReact());
+  //  int r_value = digitalRead(RIGHTBUMPER);
+  //  int l_value = digitalRead(LEFTBUMPER);
+  //
+  //  Serial.println(toReact());
 }
